@@ -23,6 +23,9 @@ class VideoProcessThread(QThread):
         
     def run(self):
         try:
+            if not self.is_running:
+                return
+                
             base_name = os.path.splitext(os.path.basename(self.video_path))[0]
             video_name = os.path.basename(self.video_path)
             
@@ -40,20 +43,26 @@ class VideoProcessThread(QThread):
                 counter += 1
             
             def progress_callback(frame_progress):
+                if not self.is_running:
+                    raise InterruptedError("处理被用户中断")
                 if frame_progress == 0:
                     frame_progress = 0.01
                 progress = int(frame_progress * 100)
                 self.video_progress.emit(self.video_index, progress)
                 self.progress_updated.emit(f"视频 {self.video_index + 1} 处理进度: {progress}%")
             
-            self.extractor.extract_subtitles(
-                self.video_path,
-                output_path,
-                'ch',
-                self.subtitle_area,
-                callback=progress_callback
-            )
-            self.progress_updated.emit(f"  √ {video_name} 处理完成，保存为: {output_file}")
+            if self.is_running:
+                self.extractor.extract_subtitles(
+                    self.video_path,
+                    output_path,
+                    'ch',
+                    self.subtitle_area,
+                    callback=progress_callback
+                )
+                self.progress_updated.emit(f"  √ {video_name} 处理完成，保存为: {output_file}")
+            
+        except InterruptedError as e:
+            self.progress_updated.emit(f"  × {video_name} 处理被中断: {str(e)}")
         except Exception as e:
             self.progress_updated.emit(f"  × {video_name} 处理失败: {str(e)}")
         finally:
@@ -61,6 +70,7 @@ class VideoProcessThread(QThread):
             
     def stop(self):
         self.is_running = False
+        self.quit()
 
 class ProcessThread(QThread):
     progress_updated = pyqtSignal(str)
@@ -74,7 +84,7 @@ class ProcessThread(QThread):
         self.subtitle_areas = subtitle_areas
         self.is_running = True
         self.threads = []
-        self.video_progresses = {}  # 存储每个视频的进度
+        self.video_progresses = {}
         
     def calculate_total_progress(self):
         if not self.video_progresses:
@@ -82,6 +92,8 @@ class ProcessThread(QThread):
         return int(sum(self.video_progresses.values()) / len(self.video_files))
     
     def update_video_progress(self, video_index, progress):
+        if not self.is_running:
+            return
         self.video_progresses[video_index] = progress
         total_progress = self.calculate_total_progress()
         self.progress_value.emit(total_progress)
@@ -93,67 +105,77 @@ class ProcessThread(QThread):
         total_videos = len(self.video_files)
         processed = 0
         group_size = 5
-        output_paths = []  # 用于存储所有输出文件的路径
+        output_paths = []
         
-        video_groups = [self.video_files[i:i + group_size] 
-                       for i in range(0, len(self.video_files), group_size)]
-        
-        current_video_index = 0
-        for group_idx, group in enumerate(video_groups, 1):
-            if not self.is_running:
-                break
-                
-            self.progress_updated.emit(f"\n========== 开始处理第 {group_idx} 组视频 ==========")
+        try:
+            video_groups = [self.video_files[i:i + group_size] 
+                           for i in range(0, len(self.video_files), group_size)]
             
-            self.threads.clear()
-            for video_path in group:
-                if video_path not in self.subtitle_areas:
-                    continue
+            current_video_index = 0
+            for group_idx, group in enumerate(video_groups, 1):
+                if not self.is_running:
+                    raise InterruptedError("处理被用户中断")
                     
-                # 获取输出路径
-                base_name = os.path.splitext(os.path.basename(video_path))[0]
-                video_dir = os.path.dirname(video_path)
-                output_dir = os.path.join(video_dir, 'output')
-                output_path = os.path.join(output_dir, f"{base_name}.srt")
-                output_paths.append(output_path)
+                self.progress_updated.emit(f"\n========== 开始处理第 {group_idx} 组视频 ==========")
                 
-                thread = VideoProcessThread(
-                    self.extractor,
-                    video_path,
-                    self.subtitle_areas[video_path],
-                    current_video_index
-                )
-                thread.progress_updated.connect(self.progress_updated.emit)
-                thread.video_progress.connect(self.update_video_progress)
-                self.threads.append(thread)
-                current_video_index += 1
-            
-            for thread in self.threads:
-                thread.start()
+                self.threads.clear()
+                for video_path in group:
+                    if not self.is_running:
+                        raise InterruptedError("处理被用户中断")
+                        
+                    if video_path not in self.subtitle_areas:
+                        continue
+                        
+                    base_name = os.path.splitext(os.path.basename(video_path))[0]
+                    video_dir = os.path.dirname(video_path)
+                    output_dir = os.path.join(video_dir, 'output')
+                    output_path = os.path.join(output_dir, f"{base_name}.srt")
+                    output_paths.append(output_path)
+                    
+                    thread = VideoProcessThread(
+                        self.extractor,
+                        video_path,
+                        self.subtitle_areas[video_path],
+                        current_video_index
+                    )
+                    thread.progress_updated.connect(self.progress_updated.emit)
+                    thread.video_progress.connect(self.update_video_progress)
+                    self.threads.append(thread)
+                    current_video_index += 1
                 
-            for thread in self.threads:
-                thread.wait()
-                processed += 1
+                for thread in self.threads:
+                    if not self.is_running:
+                        raise InterruptedError("处理被用户中断")
+                    thread.start()
+                    
+                for thread in self.threads:
+                    if not self.is_running:
+                        raise InterruptedError("处理被用户中断")
+                    thread.wait()
+                    processed += 1
+                
+                if self.is_running:
+                    self.progress_updated.emit(f"\n========== 第 {group_idx} 组处理完成 ==========")
+                    self.progress_updated.emit(f"成功处理: {len(self.threads)}/{len(group)} 个视频")
             
             if self.is_running:
-                self.progress_updated.emit(f"\n========== 第 {group_idx} 组处理完成 ==========")
-                self.progress_updated.emit(f"成功处理: {len(self.threads)}/{len(group)} 个视频")
-        
-        if self.is_running:
-            self.progress_updated.emit("\n=== 所有视频处理完成 ===")
-            self.progress_updated.emit(f"总共成功处理: {processed}/{total_videos} 个视频")
-            # 添加输出路径信息
-            self.progress_updated.emit("\n字幕文件保存在以下位置：")
-            for path in output_paths:
-                self.progress_updated.emit(path)
-        
-        self.finished.emit()
+                self.progress_updated.emit("\n=== 所有视频处理完成 ===")
+                self.progress_updated.emit(f"总共成功处理: {processed}/{total_videos} 个视频")
+                self.progress_updated.emit("\n字幕文件保存在以下位置：")
+                for path in output_paths:
+                    self.progress_updated.emit(path)
+                    
+        except InterruptedError as e:
+            self.progress_updated.emit(f"\n处理已中断: {str(e)}")
+        finally:
+            self.finished.emit()
 
     def stop(self):
         self.is_running = False
         for thread in self.threads:
             thread.stop()
             thread.wait()
+        self.quit()
 
 class MainWindow(QMainWindow):
     def __init__(self):
@@ -363,9 +385,7 @@ class MainWindow(QMainWindow):
             
             if reply == QMessageBox.Yes:
                 self.process_thread.stop()
-                self.process_thread.wait()
-                self.update_log("处理已停止")
-                self.on_process_finished()
+                self.update_log("正在停止处理，请稍候...")
 
     def on_process_finished(self):
         self.open_btn.setEnabled(True)
