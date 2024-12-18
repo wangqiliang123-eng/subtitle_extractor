@@ -1,15 +1,14 @@
 import sys
 import os
 
-# 添加项目根目录到 Python 路径
-current_dir = os.path.dirname(os.path.abspath(__file__))
-if current_dir not in sys.path:
-    sys.path.append(current_dir)
+# 将项目根目录添加到 Python 路径
+project_root = os.path.dirname(os.path.abspath(__file__))
+sys.path.append(project_root)
 
-from PyQt5.QtWidgets import QApplication
 from src.gui.main_window import MainWindow
+from PyQt5.QtWidgets import QApplication
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     app = QApplication(sys.argv)
     window = MainWindow()
     window.show()

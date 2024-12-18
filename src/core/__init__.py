@@ -1,4 +1,1 @@
-from .extractor import SubtitleExtractor
-from .video import VideoProcessor
-
-__all__ = ['SubtitleExtractor', 'VideoProcessor']
+# 保持空文件，只是标记这是一个包

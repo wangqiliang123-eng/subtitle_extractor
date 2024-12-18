@@ -1,0 +1,5 @@
+paddlepaddle
+paddleocr
+PyQt5
+opencv-python
+numpy 

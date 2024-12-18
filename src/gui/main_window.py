@@ -2,9 +2,9 @@ from PyQt5.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
                             QPushButton, QLabel, QListWidget, QTextEdit, 
                             QFileDialog, QMessageBox, QProgressBar)
 from PyQt5.QtCore import QThread, pyqtSignal
-from ..core.video import VideoProcessor
-from ..core.extractor import SubtitleExtractor
-from ..utils.logger import Logger
+from src.core.video import VideoProcessor
+from src.core.extractor import SubtitleExtractor
+from src.utils.logger import Logger
 import os
 
 class VideoProcessThread(QThread):
@@ -312,18 +312,32 @@ class MainWindow(QMainWindow):
         )
         
         if files:
-            self.video_files = files
+            # 添加新文件，避免重复
+            existing_files = set(self.video_files)
+            new_files = []
+            for file in files:
+                if file not in existing_files:
+                    new_files.append(file)
+                    existing_files.add(file)
+            
+            # 更新文件列表
+            self.video_files.extend(new_files)
+            
+            # 更新显示
             self.file_list.clear()
-            self.log_text.clear()
-            self.current_video_number = 1
-            
-            self.log_text.append(f"欢迎使用字幕提取器！{len(files)} 个视频文件已添加")
-            
             width = len(str(len(self.video_files)))
             for i, file_path in enumerate(self.video_files, 1):
                 file_name = os.path.basename(file_path)
                 self.file_list.addItem(f"{i:>{width}}. {file_name}")
             
+            # 更新日志
+            if new_files:
+                self.log_text.append(f"添加了 {len(new_files)} 个新视频文件，"
+                                   f"当前共有 {len(self.video_files)} 个文件")
+            else:
+                self.log_text.append("没有添加新文件（选择的文件已存在）")
+            
+            # 更新按钮状态
             self.select_area_btn.setEnabled(True)
             self.start_btn.setEnabled(False)
 
@@ -354,23 +368,26 @@ class MainWindow(QMainWindow):
         if not self.subtitle_areas:
             QMessageBox.warning(self, "警告", "请先框选字幕区域")
             return
-            
+        
+        self.progress_bar.setValue(0)
+        self.progress_bar.setVisible(True)
+        self.progress_bar.setFormat('%p%')
+        
         self.open_btn.setEnabled(False)
         self.select_area_btn.setEnabled(False)
         self.start_btn.setEnabled(False)
         self.stop_btn.setEnabled(True)
-        
-        self.progress_bar.setValue(0)
-        self.progress_bar.setVisible(True)
         
         self.process_thread = ProcessThread(
             self.extractor,
             self.video_files,
             self.subtitle_areas
         )
+        
         self.process_thread.progress_updated.connect(self.update_log)
-        self.process_thread.progress_value.connect(self.progress_bar.setValue)
+        self.process_thread.progress_value.connect(lambda v: self.progress_bar.setValue(v))
         self.process_thread.finished.connect(self.on_process_finished)
+        
         self.process_thread.start()
 
     def stop_process(self):
@@ -409,3 +426,11 @@ class MainWindow(QMainWindow):
             self.process_thread.wait()
         self.video_processor.close()
         event.accept()
+
+if __name__ == '__main__':
+    import sys
+    from PyQt5.QtWidgets import QApplication
+    app = QApplication(sys.argv)
+    window = MainWindow()
+    window.show()
+    sys.exit(app.exec_())
