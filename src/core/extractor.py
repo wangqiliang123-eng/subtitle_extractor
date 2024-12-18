@@ -6,6 +6,10 @@ import os
 import logging
 import subprocess
 
+# 在文件开头添加颜色常量
+PURPLE = '\033[95m'  # 紫色（亮紫色）
+RESET = '\033[0m'  # 重置颜色
+
 class SubtitleExtractor:
     def __init__(self):
         # 配置日志级别
@@ -112,12 +116,12 @@ class SubtitleExtractor:
                     
                 frame_count += 1
                 
-                # 每10帧更新一次进度
-                if frame_count % 10 == 0:
+                # 更新进度显示
+                if frame_count % 10 == 0:  # 每10帧更新一次
+                    progress = frame_count / total_frames
                     if callback:
-                        progress = frame_count / total_frames
                         callback(progress)
-                    print(f"处理进度: {frame_count}/{total_frames} ({progress*100:.1f}%)")
+                    print(f"{PURPLE}处理进度: {progress*100:.0f}%{RESET}")  # 紫色显示进度
                 
                 # 每3帧处理一次OCR，提高性能
                 if frame_count % 3 != 0:
@@ -246,7 +250,7 @@ class SubtitleExtractor:
                             print("告：文件大小为0！")
                             print("字幕内容:", subtitles)  # 打印字幕内容以便调试
                 except Exception as e:
-                    print(f"���存字幕文件时出错: {str(e)}")
+                    print(f"存字幕文件时出错: {str(e)}")
                     print("尝试保存的字幕内容:", subtitles)  # 打印字幕内容以便调试
             else:
                 print("未提取到任何字幕！")
